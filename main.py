@@ -155,6 +155,8 @@ class ListView(Screen):
         if self.keyword.text != "":
             print("搜索关键词:"+self.keyword.text)
             ids, categories, titles, links = db.searchByKeyword(self.keyword.text)
+            if len(ids)==0:
+                popupWindow("Nothing foound!", "No match article for the keyword you input!")
             data = []
             for k,v in ids.items():
                 print("%s %s %s %s"%(ids[k],categories[k],titles[k],links[k]))

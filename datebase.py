@@ -18,13 +18,8 @@ def extractKeywords(data):
     return keywords
 
 # 获取时间作为ID
-def creatLink(which):
-    path = ''
-    if which:
-        path = "keywords/"
-    else:
-        path = "documents/"
-    return path + datetime.datetime.now().strftime('%Y-%m-%d-%H:%M:%S') + ".txt"
+def createID():
+    return datetime.datetime.now().strftime('%Y%m%d%H%M%S')
 
 # 数据库实现类，包含对数据增删改查相关方法的实现
 class DataBase:
@@ -34,14 +29,14 @@ class DataBase:
         cursor.execute('CREATE DATABASE IF NOT EXISTS pythonDB')
         sql1 = """
                 create table if not exists pythonDB.documents(
-                id int(100),
-                categpry varchar(20) character set utf8,
+                id varchar(100),
+                category varchar(20) character set utf8,
                 title varchar(100) character set utf8,
                 link varchar(200) character set utf8);
                 """
         sql2 = """
                 create table if not exists pythonDB.keywords(
-                id int(100),
+                id varchar(100),
                 keyword varchar(20) character set utf8,
                 link varchar(200) character set utf8);
                 """
@@ -57,7 +52,7 @@ class DataBase:
         # 文章不存在数据库中，自动生成文章ID和保存路径
         if not self.isInDatabase(title, False):
             dataLink = 'documents/' + title + '.txt'
-            id = len(self.searchall(False))
+            id = createID()
         # 文章存在数据库中，获取原ID和文件路径，即为修改操作
         else:
             res = self.search(title, False)
@@ -70,6 +65,7 @@ class DataBase:
                 self.deleteKeywords(item[0], id)
         fdata = open(dataLink, 'w+')
         fdata.write(data)
+        fdata.close()
         print('documents table插入数据:%s %s %s %s'%(id, category, title, dataLink))
         self.cursor.execute("insert into pythonDB.documents values(%s, %s, %s, %s)",(id, category, title, dataLink))
         self.connect.commit()
@@ -88,27 +84,25 @@ class DataBase:
             # 关键字已存在十字链表中
             if self.isInDatabase(item[0], True):
                 link = self.getLink(item[0], True)
-                file = open(link,'w+')
-                rep = ""
-                for line in file.readlines():
-                    # 根据该文章相关度插入关键字链表中
-                    if int(line.split(':')[-1]) < item[1]:
-                        rep = rep + "\n" + str(id) + ":" + str(item[1])
-                    rep = rep + "\n" + line
+                file = open(link,'a+')
+                rep = str(id)+":"+str(item[1])+'\n'
                 file.write(rep)
+                file.close()
             else:
                 link = 'keywords/' + item[0] + '.txt'
-                key_id = len(self.searchall(True))
+                key_id = createID()
                 file = open(link, 'w+')
-                rep = str(id) + ":" + str(item[1])
+                rep = str(id) + ":" + str(item[1]) + '\n'
                 file.write(rep)
+                file.close()
                 self.cursor.execute("insert into pythonDB.keywords values(%s, %s, %s)",(key_id, item[0], link))
                 self.connect.commit()
+
     # 迭代删除关键字
     def deleteKeywords(self,keyword,id):
         res = self.search(keyword, True)
         filelink = res[0][2]
-        file = open(filelink,'r+')
+        file = open(filelink,'w+')
         rewrite = ""
         for line in file.readlines():
             if line.split(":")[0] != str(id):
@@ -118,6 +112,9 @@ class DataBase:
             self.cursor.execute("delete from pythonDB.keywords where keyword = %s", keyword)
             self.connect.commit()
             os.remove(filelink)
+        else:
+            file.write(rewrite)
+            file.close()
 
     # 删除文章，并迭代删除文章相关关键词     
     def deleteArticle(self, title):
@@ -139,22 +136,30 @@ class DataBase:
         """
         res = self.search(keyword, True)
         
-        if res is not None:
+        article_id = dict()
+        categories = dict()
+        titles = dict()
+        links = dict()
+
+        if len(res) != 0:
             link = res[0][2]
-            id = self.getIdByLink(link)
-            categories = dict()
-            titles = dict()
-            links = dict()
-            for k,v in id.items():
+            key_id = self.getIdByLink(link)
+            for k,v in key_id.items():
                 self.cursor.execute("select * from pythonDB.documents where id = %s",k)
                 data = self.cursor.fetchall()
+                article_id[k] = data[0][0]
                 categories[k] = data[0][1]
                 titles[k] = data[0][2]
                 links[k] = data[0][3]
-            return id, categories, titles, links
+            return article_id, categories, titles, links
         else:
-            return None
+            return article_id, categories, titles, links
             
+    # 根据目录返回列表
+    def searchByCategory(self,category):
+        self.cursor.execute("select * from pythonDB.documents where category = %s",category)
+        res = self.cursor.fetchall()
+        return res
     # 查询单个数据
     def search(self, value, which):
         data = dict()
@@ -166,6 +171,8 @@ class DataBase:
             self.cursor.execute("select * from pythonDB.documents where title=%s", value)
             data = self.cursor.fetchall()
         return data
+
+
 
     # 全部展示
     def searchall(self, which):
@@ -209,18 +216,23 @@ class DataBase:
         file = open(link,'r')
         data = ""
         for line in file.readlines():
-            data = data + line.replace('\n','').replace('\r','')
+            data = data + line
+        file.close()
         return data
     
     def getIdByLink(self,link):
-        file = open(link)
+        file = open(link,'r')
         data = dict()
         for line in file.readlines():
             res = line.split(":")
             data[res[0]] = res[1]
+        file.close()
         return data
 
-    
+    def getArticleById(self,id):
+        self.cursor.execute("select * from pythonDB.documents where id=%s",id)
+        res = self.cursor.fetchall()
+        return res     
    
 
 def insertTest():
@@ -238,21 +250,29 @@ def insertTest():
     print(keywords)
     db = DataBase()
     db.insert('养猪','规模养猪简介','养殖技术',data)
+    # db.insert('100', 'gump', 'movie', data2)
 
 
 # 测试数据库代码
 def searchTest(keyword):
     db = DataBase()
     ids, categories, titles, links = db.searchByKeyword(keyword)
-    for k,v in ids.items():
-        print("%s %s %s %s"%(ids[k],categories[k],titles[k],links[k]))
-        print(db.getDataByLink(links[k]))
+    if len(ids) == 0:
+        print("无法匹配到相关内容")
+    else:
+        print("搜索到以下内容")
+        for k,v in ids.items():
+            print("%s %s %s %s"%(ids[k],categories[k],titles[k],links[k]))
+            print(db.getDataByLink(links[k]))
 
 def deleteTest(article):
     db = DataBase()
     db.deleteArticle(article)
 
 if __name__ == '__main__':
-    # searchTest('养猪场')
+    searchTest('猪瘟')
     # insertTest()
-    deleteTest('规模养猪简介')
+    # deleteTest('规模养猪简介')
+    # db=DataBase()
+    # data = db.getArticleById('0')
+    # print(data)
