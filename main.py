@@ -1,92 +1,47 @@
-from kivy.properties import BooleanProperty
-from kivy.uix.recycleview.views import RecycleDataViewBehavior
-from kivy.uix.recycleboxlayout import RecycleBoxLayout
-from kivy.uix.recycleview.layout import LayoutSelectionBehavior
-from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
-from kivy.uix.modalview import ModalView
+from datebase import DataBase
 from kivy.app import App
 from kivy.lang import Builder
-from datebase import DataBase
-from kivy.factory import Factory
-from kivy.properties import ObjectProperty
-import kivy
+from kivy.uix.widget import Widget
+from kivy.uix.screenmanager import ScreenManager, Screen
+from kivy.uix.recycleview import RecycleView
+from kivy.uix.recycleview.views import RecycleDataViewBehavior
+from kivy.uix.recycleview.layout import LayoutSelectionBehavior
+from kivy.uix.recycleboxlayout import RecycleBoxLayout
+from kivy.uix.label import Label
+from kivy.uix.popup import Popup
+from kivy.properties import BooleanProperty, ObjectProperty
 
-Builder.load_string("""
-<SelectableLabel>:
-    font_name:'DroidSansFallback.ttf'
-    canvas.before:
-        Color:
-            rgba: (0, 0.4, 0.6, 1) if self.selected else (0, 0, 0, 1)
-        Rectangle:
-            pos: self.pos
-            size: self.size
-    color: (0, 0, 0, 1) if self.selected else (1, 1, 1, 1)
+class WindowManager(ScreenManager):
+    pass
 
-<MainView>:
-    keyword: keyword
-    data: data 
-    rv:rv
-    BoxLayout:
-        orientation: 'vertical'
-        ActionBar:
-            ActionView:
-                ActionPrevious:
-                ActionButton:
-                    text: '搜索'
-                    font_name:'DroidSansFallback.ttf'
-                    on_release: root.on_search()
-                ActionButton:
-                    text: '全部显示'
-                    font_name:'DroidSansFallback.ttf'
-                    on_release: root.on_showall()
-                ActionButton:
-                    text: '详细'
-                    font_name:'DroidSansFallback.ttf'
-                    on_release: root.on_modify()
-                ActionButton:
-                    text: '添加'
-                    font_name:'DroidSansFallback.ttf'
-                    on_release: root.on_adddata()
-                ActionButton:
-                    text: '删除选中'
-                    font_name:'DroidSansFallback.ttf'
-                    on_release: root.on_removedata()
-        TextInput:
-            id: keyword
-            font_name:'DroidSansFallback.ttf'
-            pos_hint: {"x":0.2, "top":0.8-0.13}
-            size_hint: 0.6, 0.12
-            multiline: False
-            
-            font_size: (root.width**2 + root.height**2) / 14**4
-        TextInput:
-            id: data
-            font_name:'DroidSansFallback.ttf'
-            pos_hint: {"x":0.2, "top":0.8}
-            size_hint: 0.6, 0.4
-            multiline: True
-            font_size: (root.width**2 + root.height**2) / 14**4
-        RecycleView:
-            id: rv
-            viewclass: 'SelectableLabel'
-            font_name:'DroidSansFallback.ttf'
-            SelectableRecycleBoxLayout:
-                key_selection: 'selectable'  
-                default_size: None, dp(56)
-                default_size_hint: 1.0, None
-                size_hint_y: None
-                height: self.minimum_height
-                orientation: 'vertical'
-                font_name:'DroidSansFallback.ttf'
-                multiselect: True
-                touch_multiselect: True
-""")
+def popupWindow(title, text):
+    pop = Popup(title=title,content=Label(text=text),
+                  size_hint=(None, None), size=(400, 400))
+    pop.open()
+
+# 传递全局变量类
+class Val(App):
+    title=""
+    keyword = ""
+    category=""
+    article = ""
+    id=""
+    former = ""
+    datalist = []
+
+    def clear(self):
+        self.title = ""
+        self.keyword = ""
+        self.category = ""
+        self.article = ""
+        self.id = ""
 
 class SelectableRecycleBoxLayout(LayoutSelectionBehavior, RecycleBoxLayout):
-    pass    
+    pass
 
 class SelectableLabel(RecycleDataViewBehavior, Label):
+    ''' 为标签添加选中与否的支持 '''
     index = None
     selected = BooleanProperty(False)
     selectable = BooleanProperty(True)
@@ -99,79 +54,182 @@ class SelectableLabel(RecycleDataViewBehavior, Label):
     def on_touch_down(self, touch):
         if super(SelectableLabel, self).on_touch_down(touch):
             return True
+            
         if self.collide_point(*touch.pos) and self.selectable:
+            print("点击文本:", self._label._text)
+            text = self._label._text
+            if sm.current == "list":
+                keyword = text
+                # 存在'->'为文章标题，根据文章获取,并进入详情页
+                res = keyword.split("->")
+                data = db.getArticleById(res[0])
+                print("选中文章：",data)
+                if len(data) != 1:
+                    popupWindow("sqlError", "no exists this article!")
+                else:
+                    data=data[0]
+                    val.id=data[0]
+                    val.category = data[1]
+                    val.title = data[2]
+                    val.article = db.getDataByLink(data[3])
+                    val.former = "list"
+                    
+                    sm.current = "detail"  
+
+            elif sm.current == "main":
+                res = text
+                print("选中分类:"+res)
+                docs = db.searchByCategory(res)
+                val.datalist = []
+                for doc in docs:
+                    val.datalist.append(makedata(str(doc[0])+"->"+doc[2]))
+                val.former="category"
+                
+                sm.current = "list"
+
             return self.parent.select_with_touch(self.index, touch)
 
     def apply_selection(self, rv, index, is_selected):
         self.selected = is_selected
+        # !important! : index validation
+        # if you remove raw data entry, The value of index arg be less than the value of self.index.
+        # Or the value of index arg indicates out of bounds of 'data' array.
+        # note: after leave this function, refresh_view_attrs() are called. so you should be re-assign self.index.
         if (self.index == index) and (index < len(rv.data)):
             rv.data[index]['selected'] = is_selected
+
+            # 选中某条
+            
+
+            
+            
+            
 
 def makedata(text, selectable=True, selected=False):
     return {'text': text, 'selectable': selectable, 'selected': selected}
 
-def procData(res):
-    data = []
-    for k,v in res.items():
-        data.append(makedata(k+"："+v))
-    return data
+def resetData(rv):
+    for r in rv:
+        r['selected'] = False
+class MainView(Screen):
     
-
-class MainView(ModalView):
-    def __init__(self, **kwargs):
-        super(MainView, self).__init__(**kwargs)
-    
-    def on_search(self):
-        keyword = self.keyword.text
-        if keyword != "":
-            res = db.search(keyword)
-            data = procData(res)
-            self.ids.rv.data = data
-
-    def on_showall(self):
-        res = db.searchall()
+    # 初始化界面
+    def on_enter(self):
+        res = db.searchall(False)
         print(res)
-        if res != None:
-            data = procData(res)
-            self.ids.rv.data = data
+        category = []
+        data=[]
+        for i in range(len(res)):
+            # print(res[i][1])
+            if res[i][1] not in category:
+                category.append(res[i][1])
+                data.append(makedata(res[i][1]))
+        self.ids.rv.data = data
+        print("category: ",data)
+        print('进入主界面')
 
-    def on_modify(self):
-        rv = self.ids.rv
-        count=0
-        data = ""
-        for i,v in enumerate(rv.data):
-            if v['selected']:
-                count = count+1
-                data = v['text']
-        if count==1:
-            self.keyword.text = data.split(':')[0]
-            self.data.text = data.split(':')[-1]
 
-    def on_adddata(self):
-        if self.keyword.text != "" and self.data.text != "":
-            db.insert(self.keyword.text, self.data.text)
-        else:
-            pass
+    def searchBtn(self):
+        val.former = "keyword"
+        sm.current = "list"
         
-    def on_removedata(self):
-        rv = self.ids.rv
-        lm = rv.layout_manager
-        temp = []
-        for i,v in enumerate(rv.data):
-            if v['selected']:
-                val = v['text'].split('：')
-                db.delete(val[0])
-            else:
-                temp.append(v)
-        rv.data = temp
-        lm.clear_selection()
 
+    def appendBtn(self):
+        val.former = "append"
+        val.clear()
+        sm.current = "detail"
+
+
+class ListView(Screen):
+
+    keyword = ObjectProperty(None)
+    def on_enter(self):
+        if val.former == "category":
+            print("传入列表:",val.datalist)
+            print("原列表:",self.rv.data)
+            self.rv.data = val.datalist
+        elif val.former == "detail":
+            pass
+
+    def searchBtn(self):
+        if self.keyword.text != "":
+            print("搜索关键词:"+self.keyword.text)
+            ids, categories, titles, links = db.searchByKeyword(self.keyword.text)
+            data = []
+            for k,v in ids.items():
+                print("%s %s %s %s"%(ids[k],categories[k],titles[k],links[k]))
+                print(db.getDataByLink(links[k]))
+                data.append(makedata(k+"->"+titles[k]))
+            self.rv.data = data
+        else:
+            popupWindow("No keywords", "Please input keywords to search!")
+
+    def backBtn(self):
+        val.former = "detail"
+        sm.current = "main"
+
+class DetailView(Screen):
+
+    keyword = ObjectProperty(None)
+    title = ObjectProperty(None)
+    article = ObjectProperty(None)
+    category = ObjectProperty(None)
+
+    def on_enter(self):
+        if val.former=="list":
+            self.title.text = val.title
+            self.keyword.text = val.keyword
+            self.article.text = val.article
+            self.category.text = val.category
+            print(val.category)
+
+        elif val.former=="append":
+            self.title.text = ""
+            self.keyword.text = ""
+            self.article.text = ""
+            self.category.text = ""
+    def backBtn(self):
+        val.former = "detail"
+        val.clear()
+        sm.current = "list"
+    
+    def deleteBtn(self):
+
+        if val.former == "list":
+            db.deleteArticle(val.title)
+        else:
+            popupWindow("Nothing to delete", "There is no existing record to delete!")
+        val.former = "detail"
+        val.clear()
+        sm.current = "main"
+
+    def saveBtn(self):
+        keyword = self.keyword.text
+        category = self.category.text
+        article = self.article.text
+        title = self.title.text
+        if keyword != "" and category != "" and article != "" and title != "":
+            db.insert(keyword,title,category,article)
+            print("成功插入数据记录：%s %s %s \n%s"%(title, category, keyword, article))
+            val.clear()
+            sm.current = "main"
+        else:
+            popupWindow("No enough arguments!", "Please finish all the arguments to complish record this article!")
+        
+
+kv = Builder.load_file("my.kv")
+# 利用screenmanager实现界面切换
+sm = WindowManager()
 db = DataBase()
+val = Val()
+screens = [MainView(name="main"),ListView(name="list"),DetailView(name="detail")]
+for screen in screens:
+    sm.add_widget(screen)
+sm.current = "main"
 
-class MyApp(App):
+class MyMainApp(App):
     def build(self):
-        return MainView()
-
+        return sm
 
 if __name__ == '__main__':
-    MyApp().run()
+    MyMainApp().run()
